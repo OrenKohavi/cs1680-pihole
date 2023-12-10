@@ -1,4 +1,6 @@
 #pragma once
 
-int init_blocklists();
+#include <string>
+
+int init_blocklists(bool exact_match);
 

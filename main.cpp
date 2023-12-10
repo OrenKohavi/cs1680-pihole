@@ -8,6 +8,7 @@
 #include <cstdlib>
 #include <cstdio>
 #include <iostream>
+#include <algorithm>
 
 #include "main.hpp"
 #include "blocklist.hpp"
@@ -22,13 +23,14 @@ constexpr int PORT = 5353;
 constexpr ssize_t BUFFER_SIZE = 2048; //Oversized but whatever
 constexpr char FORWARDING_DNS_IP[] = "8.8.8.8";
 constexpr int DNS_PORT = 53;
+constexpr bool EXACT_MATCH = true;
 
 
 int main()
 {
     //Initialize blocklists
     cout << "Initializing Blocklist..." << endl;
-    if (init_blocklists() < 0) {
+    if (init_blocklists(EXACT_MATCH) < 0) {
         cerr << "Failed to initialize blocklists" << endl;
         return -1;
     }
@@ -304,5 +306,7 @@ vector<string> get_query_url_vector(const dns_header &packet) {
         }
         url.push_back(url_part);
     }
+    //Before returning, flip the vector so that the domain is in the correct order (tld first)
+    reverse(url.begin(), url.end());
     return url;
 }

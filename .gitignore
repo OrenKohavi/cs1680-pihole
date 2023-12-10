@@ -1,3 +1,4 @@
 *.o
 /blocklists
 /.vscode
+main
