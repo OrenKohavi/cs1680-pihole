@@ -165,8 +165,29 @@ int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t
         log(1, "Received a message with %d authorities\n", header->num_authorities);
         return -1;
     }
+
+    //The important part: check if we need to block this request
+    vector<string> query_vector = get_query_url_vector(*header);
+    if (is_whitelisted(query_vector)) {
+        log(1, "Domain %s is whitelisted, getting response from whitelist\n", get_query_url_string(*header).c_str());
+        throw runtime_error("Whitelist not implemented yet");
+    }
+
+    if (is_blacklisted(query_vector)) {
+        log(1, "Domain %s is blacklisted, returning 0.0.0.0\n", get_query_url_string(*header).c_str());
+        throw runtime_error("Blacklist not implemented yet");
+    }
     
     //At the moment, we just forward this entire packet to Google's DNS servers
+    return dns_forward(header, response_buf, response_size); 
+}
+
+int dns_myself(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
+    dns_forward(header, response_buf, response_size);
+    return 0;
+}
+
+int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
     int google_socket_fd;
     struct sockaddr_in servaddr;
 

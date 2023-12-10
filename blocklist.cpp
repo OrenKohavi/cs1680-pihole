@@ -5,7 +5,8 @@
 #include <ranges>
 #include <algorithm>
 
-#include "trie.cpp"
+#include "blocklist.hpp"
+#include "trie.hpp"
 
 using namespace std;
 
@@ -118,12 +119,12 @@ int init_blocklists(bool exact_match) {
     return 0;
 }
 
-bool is_whitelisted(const vector<string> &url) {
+bool is_whitelisted(vector<string> &url) {
     //If the URL is in the map, then it is whitelisted
     return whitelist.contains(url);
 }
 
-bool is_blacklisted(const vector<string> &url) {
+bool is_blacklisted(vector<string> &url) {
     //If the URL is in the trie, then it is blacklisted
     return blocklist.contains(url);
 }
