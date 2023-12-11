@@ -48,7 +48,7 @@ int init_blocklists(bool exact_match) {
             cout << "File '" + string(filename) + "' already exists" << endl;
             continue;
         }
-        string command = "wget -P " + string(BLOCKLIST_DIRECTORY) + " " + url +  " -O " + string(url);
+        string command = "wget -P " + string(BLOCKLIST_DIRECTORY) + " " + url;
         cout << "Running command: " << command << endl;
         int status = system(command.c_str());
         if (status == -1) {
@@ -119,9 +119,12 @@ int init_blocklists(bool exact_match) {
     return 0;
 }
 
-bool is_whitelisted(vector<string> &url) {
-    //If the URL is in the map, then it is whitelisted
-    return whitelist.contains(url);
+const char* is_whitelisted(vector<string> &url) {
+    if (whitelist.contains(url)) [[unlikely]] {
+        return whitelist[url].c_str();
+    } else [[likely]] {
+        return nullptr;
+    }
 }
 
 bool is_blacklisted(vector<string> &url) {

@@ -37,9 +37,10 @@ typedef struct {
 } dns_header;
 
 int main();
-int fill_in_dns_header(dns_header* header, unsigned char* buf, ssize_t buf_size);
+int deserialize_dns_header(dns_header* header, unsigned char* buf, ssize_t buf_size);
 int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t *response_size);
-int dns_myself(dns_header *header, unsigned char *response_buf, ssize_t *response_size);
+int dns_whitelist(dns_header *header, unsigned char *response_buf, ssize_t *response_size);
+int dns_block(dns_header *header, unsigned char *response_buf, ssize_t *response_size);
 int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *response_size);
 void print_packet(const dns_header &packet);
 std::string get_query_url_string(const dns_header &packet);

@@ -85,7 +85,7 @@ int main()
             log(1, "Received message too large (%ld bytes)\n", recv_len);
             continue;
         }
-        if (recv_len < (ssize_t)sizeof(dns_header))
+        if (recv_len < DNS_HEADER_SIZE)
         {
             log(1, "Received message too small (%ld bytes)\n", recv_len);
             continue;
@@ -109,7 +109,7 @@ int main()
         }
 
         dns_header header;
-        if (0 != fill_in_dns_header(&header, recv_buffer, recv_len)){
+        if (0 != deserialize_dns_header(&header, recv_buffer, recv_len)){
             log(1, "Failed to fill in DNS header, dropping packet\n");
             continue;
         }
@@ -149,6 +149,7 @@ int main()
  * @param response_size Filled in with the size of the response
 */
 int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t *response_size) {
+    memset(response_buf, 0, BUFFER_SIZE);
     // First, sanity checks:
     // Check that the message is a query
     if (header->flags.is_response) {
@@ -170,20 +171,81 @@ int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t
     vector<string> query_vector = get_query_url_vector(*header);
     if (is_whitelisted(query_vector)) {
         log(1, "Domain %s is whitelisted, getting response from whitelist\n", get_query_url_string(*header).c_str());
-        throw runtime_error("Whitelist not implemented yet");
+        return dns_whitelist(header, response_buf, response_size);
     }
 
     if (is_blacklisted(query_vector)) {
         log(1, "Domain %s is blacklisted, returning 0.0.0.0\n", get_query_url_string(*header).c_str());
-        throw runtime_error("Blacklist not implemented yet");
+        return dns_block(header, response_buf, response_size);
     }
     
-    //At the moment, we just forward this entire packet to Google's DNS servers
+    //If it's a normal query, just forward it to a real DNS server
+    log(1, "Domain %s is not blacklisted, forwarding to real DNS server\n", get_query_url_string(*header).c_str());
     return dns_forward(header, response_buf, response_size); 
 }
 
-int dns_myself(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
-    dns_forward(header, response_buf, response_size);
+int dns_whitelist(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
+    //We can actually just use dns_block and replace the IP at the very end
+    int result = dns_block(header, response_buf, response_size);
+    if (result < 0) {
+        return result;
+    }
+    //Now, we need to replace the IP address with the one from the whitelist
+    vector<string> query_vector = get_query_url_vector(*header);
+    string ip = is_whitelisted(query_vector);
+    //Convert the string IP to a 32-bit integer
+    unsigned int ip_int = inet_addr(ip.c_str());
+    //Last 4 bytes should be the IP, so just replace them
+    memcpy(response_buf + (*response_size - 4), &ip_int, sizeof(ip_int));
+    return 0;
+}
+
+int dns_block(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
+    //Craft and return a response with the IP as 0.0.0.0
+    memcpy(response_buf, header->raw_packet, header->packet_size);   // Copy the entire original packet, since the response still contains the query
+    response_buf[2] |= 0b10000000; //Set the response bit
+    response_buf[3] |= 0b00000001; //Set the recursion available bit
+    response_buf[7] = 0x01; //Set the number of answers to 1
+    
+    //Now, we need to actually populate the answer field, which should be placed right after the question field
+    unsigned char *answer_ptr = response_buf + header->packet_size;
+    unsigned char *question_start_ptr = header->raw_packet + DNS_HEADER_SIZE;
+    //Unorthodox, but strlen is actually very useful here, since it finds the length of the name until the terminating null
+    //int question_size = strlen(static_cast<const char *>(question_start_ptr));
+    int question_size = strlen((char *)question_start_ptr) + 1; //Add one for null byte
+    memcpy(answer_ptr, question_start_ptr, question_size);
+    answer_ptr += question_size;
+    //cerr << "Question size is " + to_string(question_size) << endl;
+    // Now, we need to add the type and class fields
+    // Annoyingly, these can have any alignment whatsoever, so we need to memcpy or manually set things instead of being normal
+    unsigned int temp_int;
+
+    // Type: A
+    answer_ptr++; //skip MSB
+    *answer_ptr++ = 0x01;
+
+    // Class: IN
+    answer_ptr++; // skip MSB
+    *answer_ptr++ = 0x01;
+
+    // Set TTL to max
+    temp_int = htonl(0x0000FFFF);
+    memcpy(answer_ptr, &temp_int, sizeof(temp_int));
+    answer_ptr += 4;
+
+    // Set the data length to 4 bytes
+    answer_ptr++; // skip MSB
+    *answer_ptr++ = 0x04;
+
+    // Set the IP addr to zero
+    temp_int = 0;
+    memcpy(answer_ptr, &temp_int, sizeof(temp_int));
+    answer_ptr += 4;
+
+    *response_size = answer_ptr - response_buf;
+
+    
+
     return 0;
 }
 
@@ -239,7 +301,7 @@ int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *respon
  *
  * NOTE: The buffer passed to this function must remain valid for the lifetime of the dns_header struct
  */
-int fill_in_dns_header(dns_header *header, unsigned char *buf, ssize_t buf_size) {
+int deserialize_dns_header(dns_header *header, unsigned char *buf, ssize_t buf_size) {
     if (buf_size < DNS_HEADER_SIZE) {
         // Buffer is too small
         log(1, "Buffer is too small to contain a DNS header [Size is %zd, minimum of %zd]\n", buf_size,
