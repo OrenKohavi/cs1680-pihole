@@ -192,9 +192,13 @@ int dns_whitelist(dns_header *header, unsigned char *response_buf, ssize_t *resp
     }
     //Now, we need to replace the IP address with the one from the whitelist
     vector<string> query_vector = get_query_url_vector(*header);
-    string ip = is_whitelisted(query_vector);
+    const char* ip = is_whitelisted(query_vector);
+    if (ip == nullptr) [[unlikely]] {
+        log(1, "Domain %s is whitelisted, but no IP address is present in the whitelist\n", get_query_url_string(*header).c_str());
+        return -1;
+    }
     //Convert the string IP to a 32-bit integer
-    unsigned int ip_int = inet_addr(ip.c_str());
+    unsigned int ip_int = inet_addr(ip);
     //Last 4 bytes should be the IP, so just replace them
     memcpy(response_buf + (*response_size - 4), &ip_int, sizeof(ip_int));
     return 0;
