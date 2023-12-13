@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <iostream>
 #include <algorithm>
+#include <csignal>
 
 #include "main.hpp"
 #include "blocklist.hpp"
@@ -26,9 +27,14 @@ constexpr char DNS_ROOT_SERVER_IP[] = "108.179.34.214";
 constexpr int DNS_PORT = 53;
 constexpr bool EXACT_MATCH = true;
 
+void sigint_handler(int signum) {
+    cout << "Received SIGINT, exiting..." << endl;
+    exit(0);
+}
 
-int main()
-{
+int main() {
+    //Initialize signal handler
+    signal(SIGINT, sigint_handler);
     //Initialize blocklists
     cout << "Initializing Blocklist..." << endl;
     if (init_blocklists(EXACT_MATCH) < 0) {
