@@ -104,7 +104,7 @@ int main() {
     tcp_timeout.tv_usec = TCP_TIMEOUT_MICROSECONDS;
 
     while (true) {
-        log(2, "[Re]Entering While-Loop\n");
+        log(3, "[Re]Entering While-Loop\n");
         //Just in case, clear everything
         memset(recv_buffer, 0, BUFFER_SIZE);
         memset(send_buffer, 0, BUFFER_SIZE);
@@ -222,9 +222,7 @@ int main() {
             continue;
         }
 
-        if (LOG_LEVEL >= 2){
-            print_packet(header);
-        }
+        print_packet(header);
 
         ssize_t response_size = 0;
         int result = create_dns_response(&header, send_buffer, &response_size);
@@ -299,7 +297,7 @@ int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t
         log(1, "Domain %s is blacklisted, returning 0.0.0.0\n", get_query_url_string(*header).c_str());
         result = dns_block(header, response_buf, response_size);
     } else {
-        log(1, "Domain %s is not blacklisted, forwarding to real DNS server\n", get_query_url_string(*header).c_str());
+        log(1, "Domain %s is not blacklisted, forwarding...\n", get_query_url_string(*header).c_str());
         result = dns_forward(header, response_buf, response_size);
     }
     log(3, "DNS result: %d\n", result);
@@ -476,20 +474,25 @@ int deserialize_dns_header(dns_header *header, unsigned char *buf, ssize_t buf_s
  * Prints the given DNS packet to stdout
 */
 void print_packet(const dns_header &packet) {
-    printf("DNS Packet:\n");
-    printf("ID: %hu\n", packet.id);
-    printf("Flags:\n");
-    printf("  Is Response: %s\n", packet.flags.is_response ? "Yes" : "No");
-    printf("  Opcode: %u\n", packet.flags.opcode);
-    printf("  Authoritative Answer: %s\n", packet.flags.authoritative_answer ? "Yes" : "No");
-    printf("  Truncated: %s\n", packet.flags.truncated ? "Yes" : "No");
-    printf("  Recursion Desired: %s\n", packet.flags.recursion_desired ? "Yes" : "No");
-    printf("  Recursion Available: %s\n", packet.flags.recursion_available ? "Yes" : "No");
-    printf("  Response Code: %u\n", packet.flags.response_code);
-    printf("Questions: %hu\n", packet.num_questions);
-    printf("Answers: %hu\n", packet.num_answers);
-    printf("Authorities: %hu\n", packet.num_authorities);
-    printf("Additional Resource Records: %hu\n", packet.num_additional_rr);
+    if (LOG_LEVEL < 2) {
+        return;
+    }
+    if (LOG_LEVEL >= 3) {
+        printf("DNS Packet:\n");
+        printf("ID: %hu\n", packet.id);
+        printf("Flags:\n");
+        printf("  Is Response: %s\n", packet.flags.is_response ? "Yes" : "No");
+        printf("  Opcode: %u\n", packet.flags.opcode);
+        printf("  Authoritative Answer: %s\n", packet.flags.authoritative_answer ? "Yes" : "No");
+        printf("  Truncated: %s\n", packet.flags.truncated ? "Yes" : "No");
+        printf("  Recursion Desired: %s\n", packet.flags.recursion_desired ? "Yes" : "No");
+        printf("  Recursion Available: %s\n", packet.flags.recursion_available ? "Yes" : "No");
+        printf("  Response Code: %u\n", packet.flags.response_code);
+        printf("Questions: %hu\n", packet.num_questions);
+        printf("Answers: %hu\n", packet.num_answers);
+        printf("Authorities: %hu\n", packet.num_authorities);
+        printf("Additional Resource Records: %hu\n", packet.num_additional_rr);
+    }
     printf("Packet Size: %zd bytes\n", packet.packet_size);
     printf("Question: ");
 
