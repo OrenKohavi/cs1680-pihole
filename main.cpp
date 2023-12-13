@@ -26,6 +26,8 @@ constexpr char FORWARDING_DNS_IP[] = "8.8.8.8";
 constexpr char DNS_ROOT_SERVER_IP[] = "108.179.34.214";
 constexpr int DNS_PORT = 53;
 constexpr bool EXACT_MATCH = true;
+constexpr int TCP_TIMEOUT_SECONDS = 1;
+constexpr int TCP_TIMEOUT_MICROSECONDS = 0;
 
 void sigint_handler(int signum) {
     cout << "Received SIGINT, (Signal " << signum << ") exiting..." << endl;
@@ -97,6 +99,9 @@ int main() {
     int tcp_connection;
     bool is_tcp = false;
     ssize_t recv_len = 0;
+    struct timeval tcp_timeout = {};
+    tcp_timeout.tv_sec = TCP_TIMEOUT_SECONDS;
+    tcp_timeout.tv_usec = TCP_TIMEOUT_MICROSECONDS;
 
     while (true) {
         log(2, "[Re]Entering While-Loop\n");
@@ -104,6 +109,7 @@ int main() {
         memset(recv_buffer, 0, BUFFER_SIZE);
         memset(send_buffer, 0, BUFFER_SIZE);
         recv_len = 0;
+        tcp_connection = 0;
 
         // Now, I need to use the super-shitty old C-style select() function to listen on both sockets at once
         // This is the only part where I really with I decided to use golang
@@ -129,9 +135,7 @@ int main() {
         }
         else if (FD_ISSET(tcp_socket_fd, &readfds)) {
             is_tcp = true;
-            log(2, "Calling accept with fd: %d\n", tcp_socket_fd);
-            log(2, "Calling accept with addr: %p\n", &client_addr);
-            log(2, "Calling accept with len: %d\n", client_len);
+            log(3, "Calling accept with fd: %d\n", tcp_socket_fd);
             if ((tcp_connection = accept(tcp_socket_fd, (struct sockaddr *)&client_addr, &client_len)) < 0) {
                 perror("Error accepting TCP connection");
                 exit(1);
@@ -139,10 +143,19 @@ int main() {
 
             //Read data from TCP socket
             //First, read the first two bytes, which contain the length of the message
-            
-            
+            if (setsockopt(tcp_connection, SOL_SOCKET, SO_RCVTIMEO, (char *)&tcp_timeout, sizeof(tcp_timeout)) < 0) {
+                perror("Error setting socket timeout");
+                exit(1);
+            }
+
             unsigned char tcp_len_buf[2];
             if (recv(tcp_connection, tcp_len_buf, 2, 0) < 0) {
+                //Check for timeout
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    log(1, "TCP connection timed out [reading size]\n");
+                    close(tcp_connection);
+                    continue;
+                }
                 perror("Error receiving data");
                 exit(1);
             }
@@ -153,6 +166,11 @@ int main() {
             //Now, read the actual message
             while(recv_len < tcp_len){
                 ssize_t recv_len_temp = recv(tcp_connection, recv_buffer + recv_len, BUFFER_SIZE - recv_len, 0);
+                if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                    log(1, "TCP connection timed out [reading data, %zd/%d]\n", recv_len, tcp_len);
+                    close(tcp_connection);
+                    continue;
+                }
                 if (recv_len_temp < 0) {
                     perror("Error receiving data");
                     exit(1);
