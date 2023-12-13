@@ -515,6 +515,8 @@ void print_packet(const dns_header &packet) {
 
 string get_query_url_string(const dns_header &packet) {
     vector<string> url = get_query_url_vector(packet);
+    //reverse url vector, so that the domain is in the correct order for a user to see (tld last)
+    reverse(url.begin(), url.end());
     //Combine the vector into a single string with dots in between
     string url_string("");
     for (string url_part : url) {
@@ -537,7 +539,7 @@ vector<string> get_query_url_vector(const dns_header &packet) {
         }
         url.push_back(url_part);
     }
-    //Before returning, flip the vector so that the domain is in the correct order (tld first)
+    //Before returning, flip the vector so that the domain is in the correct order for a trie (tld first)
     reverse(url.begin(), url.end());
     return url;
 }
