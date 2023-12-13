@@ -28,7 +28,7 @@ constexpr int DNS_PORT = 53;
 constexpr bool EXACT_MATCH = true;
 
 void sigint_handler(int signum) {
-    cout << "Received SIGINT, exiting..." << endl;
+    cout << "Received SIGINT, (Signal " << signum << ") exiting..." << endl;
     exit(0);
 }
 

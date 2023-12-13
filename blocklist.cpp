@@ -109,7 +109,7 @@ int init_blocklists(bool exact_match) {
                 if (ip != "0.0.0.0") [[unlikely]] {
                     //These are whitelisted things, so just add them to the whitelist
                     whitelist.emplace(url, ip);
-                } else {
+                } else [[likely]] {
                     //These are blacklisted things, so add them to the blocklist trie
                     blocklist.insert(url);
                 }
