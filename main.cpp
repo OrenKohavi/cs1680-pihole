@@ -167,15 +167,20 @@ int main() {
             while(recv_len < tcp_len){
                 ssize_t recv_len_temp = recv(tcp_connection, recv_buffer + recv_len, BUFFER_SIZE - recv_len, 0);
                 if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    log(1, "TCP connection timed out [reading data, %zd/%d]\n", recv_len, tcp_len);
+                    log(1, "TCP connection timed out (inside loop) [reading data, %zd/%d]\n", recv_len, tcp_len);
                     close(tcp_connection);
-                    continue;
+                    break; //Break out of while loop, and then we need to check if recv_len == tcp_len
                 }
                 if (recv_len_temp < 0) {
                     perror("Error receiving data");
                     exit(1);
                 }
                 recv_len += recv_len_temp;
+            }
+            if (recv_len != tcp_len) {
+                log(1, "TCP connection timed out (outside loop) [reading data, %zd/%d]\n", recv_len, tcp_len);
+                close(tcp_connection);
+                continue;
             }
 
         } else {
