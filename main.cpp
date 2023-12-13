@@ -20,7 +20,7 @@
 
 using namespace std;
 
-constexpr int PORT = 5353;
+constexpr int PORT = 53;
 constexpr ssize_t BUFFER_SIZE = 2048; //Oversized but whatever
 constexpr char FORWARDING_DNS_IP[] = "8.8.8.8";
 constexpr char DNS_ROOT_SERVER_IP[] = "108.179.34.214";
