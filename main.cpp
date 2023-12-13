@@ -164,16 +164,28 @@ int main() {
             unsigned short tcp_len = ntohs(*(unsigned short *)tcp_len_buf);
             log(2, "Expecting TCP message of length %d\n", tcp_len);
             //Now, read the actual message
+            int loop_counter = 0;
             while(recv_len < tcp_len){
-                ssize_t recv_len_temp = recv(tcp_connection, recv_buffer + recv_len, BUFFER_SIZE - recv_len, 0);
-                if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                    log(1, "TCP connection timed out (inside loop) [reading data, %zd/%d]\n", recv_len, tcp_len);
-                    close(tcp_connection);
-                    break; //Break out of while loop, and then we need to check if recv_len == tcp_len
+                log(2, "Loop #%d, received %zd/%d bytes\n", loop_counter, recv_len, tcp_len);
+                //For some reason, there's a bug where the program will spin forever in this loop
+                //I believe that the bug is fixed now (with the check for recv_len_tmp == 0), but it doesn't hurt to keep this around
+                loop_counter++;
+                if (loop_counter >= 100){
+                    log(1, "[!] TCP Receive Loop spun too many times! (spun %d times with %zd/%d bytes received)", loop_counter, recv_len, tcp_len);
                 }
+                ssize_t recv_len_temp = recv(tcp_connection, recv_buffer + recv_len, BUFFER_SIZE - recv_len, 0);
                 if (recv_len_temp < 0) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                        log(1, "TCP connection timed out (inside loop) [reading data, %zd/%d]\n", recv_len, tcp_len);
+                        close(tcp_connection);
+                        break; // Break out of while loop, and then we need to check if recv_len == tcp_len
+                    }
                     perror("Error receiving data");
                     exit(1);
+                } else if (recv_len_temp == 0) {
+                    log(1, "Other side has closed TCP connection\n");
+                    close(tcp_connection);
+                    break;
                 }
                 recv_len += recv_len_temp;
             }
