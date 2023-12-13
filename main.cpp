@@ -124,7 +124,7 @@ int main() {
 
         if (activity < 0) {
             perror("Error in select");
-            exit(1);
+            continue;
         }
 
         // Handle UDP socket
@@ -138,14 +138,14 @@ int main() {
             log(3, "Calling accept with fd: %d\n", tcp_socket_fd);
             if ((tcp_connection = accept(tcp_socket_fd, (struct sockaddr *)&client_addr, &client_len)) < 0) {
                 perror("Error accepting TCP connection");
-                exit(1);
+                continue;
             }
 
             //Read data from TCP socket
             //First, read the first two bytes, which contain the length of the message
             if (setsockopt(tcp_connection, SOL_SOCKET, SO_RCVTIMEO, (char *)&tcp_timeout, sizeof(tcp_timeout)) < 0) {
                 perror("Error setting socket timeout");
-                exit(1);
+                continue;
             }
 
             unsigned char tcp_len_buf[2];
@@ -157,7 +157,7 @@ int main() {
                     continue;
                 }
                 perror("Error receiving data");
-                exit(1);
+                continue;
             }
             
             //Convert the length to a 16-bit integer
@@ -181,7 +181,10 @@ int main() {
                         break; // Break out of while loop, and then we need to check if recv_len == tcp_len
                     }
                     perror("Error receiving data");
-                    exit(1);
+                    //exit(1);
+                    recv_len = 0;
+                    tcp_len = 1;
+                    break; //Don't kill the whole program! This will force the main loop to restart
                 } else if (recv_len_temp == 0) {
                     log(1, "Other side has closed TCP connection\n");
                     close(tcp_connection);
@@ -202,7 +205,7 @@ int main() {
 
         if (recv_len < 0) {
             perror("Error receiving data");
-            exit(1);
+            continue;
         }
         if (recv_len == 0) {
             log(1, "Received empty message\n");
@@ -251,19 +254,19 @@ int main() {
         // Send response to client
         if (!is_tcp) {
             if (sendto(udp_socket_fd, send_buffer, response_size, 0, (struct sockaddr *)&client_addr, client_len) < 0) {
-                perror("Error sending data");
-                exit(1);
+                perror("UDP: Error sending data");
+                continue;
             }
         } else {
             //First, send the length
             unsigned short tcp_len = htons(response_size);
             if (send(tcp_connection, &tcp_len, 2, 0) < 0) {
-                perror("Error sending length to client");
-                exit(1);
+                perror("TCP: Error sending length to client");
+                continue;
             }
             if (send(tcp_connection, send_buffer, response_size, 0) < 0) {
-                perror("Error sending data to client");
-                exit(1);
+                perror("TCP: Error sending data to client");
+                continue;
             }
             close(tcp_connection);
         }
