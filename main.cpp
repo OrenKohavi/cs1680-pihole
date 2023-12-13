@@ -22,6 +22,7 @@ using namespace std;
 constexpr int PORT = 5353;
 constexpr ssize_t BUFFER_SIZE = 2048; //Oversized but whatever
 constexpr char FORWARDING_DNS_IP[] = "8.8.8.8";
+constexpr char DNS_ROOT_SERVER_IP[] = "108.179.34.214";
 constexpr int DNS_PORT = 53;
 constexpr bool EXACT_MATCH = true;
 
@@ -37,64 +38,147 @@ int main()
     cout << "Blocklist initialized" << endl;
 
     // Start listening for DNS queries
-    int main_socket_fd;
-    struct sockaddr_in server_addr, client_addr;
-    socklen_t client_len;
+    struct sockaddr_in server_addr = {};
+    struct sockaddr_in client_addr = {};
+    socklen_t client_len = 0;
     unsigned char recv_buffer[BUFFER_SIZE];
+    memset(recv_buffer, 0, BUFFER_SIZE);
     unsigned char send_buffer[BUFFER_SIZE];
+    memset(send_buffer, 0, BUFFER_SIZE);
 
     // Create socket
-    main_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
-    if (main_socket_fd < 0)
+    int udp_socket_fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (udp_socket_fd < 0)
     {
-        perror("Error opening socket");
+        perror("Error opening UDP socket");
         exit(1);
     }
 
-    // Bind socket to port
+    int tcp_socket_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (tcp_socket_fd < 0) {
+        perror("Error opening TCP socket");
+        exit(1);
+    }
+
+    // Bind UDP socket to port
     memset((char *)&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_port = htons(PORT);
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    if (bind(main_socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
+    if (bind(udp_socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0)
     {
-        perror("Error binding socket");
+        perror("Error binding UDP socket");
         exit(1);
     }
 
-    log(1, "Listening on UDP port %d...\n", PORT);
+    // Bind TCP socket to the same port
+    if (bind(tcp_socket_fd, (struct sockaddr *)&server_addr, sizeof(server_addr)) < 0) {
+        perror("Error binding TCP socket");
+        exit(1);
+    }
 
-    while (1)
+    // Start listening on TCP socket
+    if (listen(tcp_socket_fd, 10) < 0) // 10 is the max backlog
     {
-        // Receive data from client
+        perror("Error listening on TCP socket");
+        exit(1);
+    }
+
+    log(1, "Listening on port %d...\n", PORT);
+
+    fd_set readfds;
+    int max_sd;
+    int tcp_connection;
+    bool is_tcp = false;
+    ssize_t recv_len = 0;
+
+    while (true) {
+        log(2, "[Re]Entering While-Loop\n");
+        //Just in case, clear everything
         memset(recv_buffer, 0, BUFFER_SIZE);
-        client_len = sizeof(client_addr);
-        ssize_t recv_len = recvfrom(main_socket_fd, recv_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &client_len);
-        if (recv_len < 0)
-        {
+        memset(send_buffer, 0, BUFFER_SIZE);
+        recv_len = 0;
+
+        // Now, I need to use the super-shitty old C-style select() function to listen on both sockets at once
+        // This is the only part where I really with I decided to use golang
+        FD_ZERO(&readfds);
+
+        // Add sockets to set
+        FD_SET(udp_socket_fd, &readfds);
+        FD_SET(tcp_socket_fd, &readfds);
+        max_sd = (udp_socket_fd > tcp_socket_fd) ? udp_socket_fd : tcp_socket_fd;
+
+        int activity = select(max_sd + 1, &readfds, NULL, NULL, NULL);
+
+        if (activity < 0) {
+            perror("Error in select");
+            exit(1);
+        }
+
+        // Handle UDP socket
+        if (FD_ISSET(udp_socket_fd, &readfds)) {
+            is_tcp = false;
+            client_len = sizeof(client_addr);
+            recv_len = recvfrom(udp_socket_fd, recv_buffer, BUFFER_SIZE, 0, (struct sockaddr *)&client_addr, &client_len);
+        }
+        else if (FD_ISSET(tcp_socket_fd, &readfds)) {
+            is_tcp = true;
+            log(2, "Calling accept with fd: %d\n", tcp_socket_fd);
+            log(2, "Calling accept with addr: %p\n", &client_addr);
+            log(2, "Calling accept with len: %d\n", client_len);
+            if ((tcp_connection = accept(tcp_socket_fd, (struct sockaddr *)&client_addr, &client_len)) < 0) {
+                perror("Error accepting TCP connection");
+                exit(1);
+            }
+
+            //Read data from TCP socket
+            //First, read the first two bytes, which contain the length of the message
+            
+            
+            unsigned char tcp_len_buf[2];
+            if (recv(tcp_connection, tcp_len_buf, 2, 0) < 0) {
+                perror("Error receiving data");
+                exit(1);
+            }
+            
+            //Convert the length to a 16-bit integer
+            unsigned short tcp_len = ntohs(*(unsigned short *)tcp_len_buf);
+            log(2, "Expecting TCP message of length %d\n", tcp_len);
+            //Now, read the actual message
+            while(recv_len < tcp_len){
+                ssize_t recv_len_temp = recv(tcp_connection, recv_buffer + recv_len, BUFFER_SIZE - recv_len, 0);
+                if (recv_len_temp < 0) {
+                    perror("Error receiving data");
+                    exit(1);
+                }
+                recv_len += recv_len_temp;
+            }
+
+        } else {
+            log(1, "Select returned with no activity\n");
+            continue;
+        }
+
+        if (recv_len < 0) {
             perror("Error receiving data");
             exit(1);
         }
-        if (recv_len == 0)
-        {
+        if (recv_len == 0) {
             log(1, "Received empty message\n");
             continue;
         }
-        if (recv_len >= BUFFER_SIZE)
-        {
+        if (recv_len >= BUFFER_SIZE) {
             log(1, "Received message too large (%ld bytes)\n", recv_len);
             continue;
         }
-        if (recv_len < DNS_HEADER_SIZE)
-        {
+        if (recv_len < DNS_HEADER_SIZE) {
             log(1, "Received message too small (%ld bytes)\n", recv_len);
             continue;
         }
 
         // Print received data
-        log(2, "Received %zd bytes\n", recv_len);
-        if (LOG_LEVEL >= 3)
-        {
+        log(2, "Received %zd bytes (is_tcp: %d)\n", recv_len, is_tcp);
+        if (LOG_LEVEL >= 3) {
             string packet_text(reinterpret_cast<const char *>(recv_buffer), static_cast<size_t>(recv_len));
             cout << packet_text << endl;
             for (int i = 0; i < recv_len; i++)
@@ -109,7 +193,7 @@ int main()
         }
 
         dns_header header;
-        if (0 != deserialize_dns_header(&header, recv_buffer, recv_len)){
+        if (0 != deserialize_dns_header(&header, recv_buffer, recv_len)) {
             log(1, "Failed to fill in DNS header, dropping packet\n");
             continue;
         }
@@ -126,15 +210,28 @@ int main()
         }
 
         // Send response to client
-        if (sendto(main_socket_fd, send_buffer, response_size, 0, (struct sockaddr *)&client_addr, client_len) < 0)
-        {
-            perror("Error sending data");
-            exit(1);
+        if (!is_tcp) {
+            if (sendto(udp_socket_fd, send_buffer, response_size, 0, (struct sockaddr *)&client_addr, client_len) < 0) {
+                perror("Error sending data");
+                exit(1);
+            }
+        } else {
+            //First, send the length
+            unsigned short tcp_len = htons(response_size);
+            if (send(tcp_connection, &tcp_len, 2, 0) < 0) {
+                perror("Error sending length to client");
+                exit(1);
+            }
+            if (send(tcp_connection, send_buffer, response_size, 0) < 0) {
+                perror("Error sending data to client");
+                exit(1);
+            }
+            close(tcp_connection);
         }
     }
 
     // Close socket
-    close(main_socket_fd);
+    close(udp_socket_fd);
 
     return 0;
 }
@@ -150,6 +247,7 @@ int main()
 */
 int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t *response_size) {
     memset(response_buf, 0, BUFFER_SIZE);
+    *response_size = 0;
     // First, sanity checks:
     // Check that the message is a query
     if (header->flags.is_response) {
@@ -169,19 +267,19 @@ int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t
 
     //The important part: check if we need to block this request
     vector<string> query_vector = get_query_url_vector(*header);
+    int result;
     if (is_whitelisted(query_vector)) {
         log(1, "Domain %s is whitelisted, getting response from whitelist\n", get_query_url_string(*header).c_str());
-        return dns_whitelist(header, response_buf, response_size);
-    }
-
-    if (is_blacklisted(query_vector)) {
+        result = dns_whitelist(header, response_buf, response_size);
+    } else if (is_blacklisted(query_vector)) {
         log(1, "Domain %s is blacklisted, returning 0.0.0.0\n", get_query_url_string(*header).c_str());
-        return dns_block(header, response_buf, response_size);
+        result = dns_block(header, response_buf, response_size);
+    } else {
+        log(1, "Domain %s is not blacklisted, forwarding to real DNS server\n", get_query_url_string(*header).c_str());
+        result = dns_forward(header, response_buf, response_size);
     }
-    
-    //If it's a normal query, just forward it to a real DNS server
-    log(1, "Domain %s is not blacklisted, forwarding to real DNS server\n", get_query_url_string(*header).c_str());
-    return dns_forward(header, response_buf, response_size); 
+    log(3, "DNS result: %d\n", result);
+    return result;
 }
 
 int dns_whitelist(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
@@ -254,14 +352,16 @@ int dns_block(dns_header *header, unsigned char *response_buf, ssize_t *response
 }
 
 int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *response_size){
-    int google_socket_fd;
+    int forwarding_socket_fd;
     struct sockaddr_in servaddr;
 
     // Create a socket
-    if ((google_socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
+    log(3, "Creating socket to forward DNS query to real DNS server\n");
+    if ((forwarding_socket_fd = socket(AF_INET, SOCK_DGRAM, 0)) < 0) {
         perror("Socket creation failed");
         return -2;
     }
+    log(3, "Socket created\n");
 
     memset(&servaddr, 0, sizeof(servaddr));
 
@@ -272,26 +372,39 @@ int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *respon
 
     // Send DNS query to Google's DNS server over TCP
     // This skips the rigamarole of dealing with requests that are over 512 bytes
-    if (connect(google_socket_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
+    log(3, "Connecting to forwarding DNS server...\n");
+    if (connect(forwarding_socket_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0) {
         perror("Connection with the server failed");
         return -3;
     }
+    log(3, "Connected to forwarding DNS server\n");
 
     // Send the query to Google's DNS server
-    if (send(google_socket_fd, header->raw_packet, header->packet_size, 0) < 0) {
+    //First, send 2 bytes containing the length of the message
+    /*
+    log(2, "Sending size of %zd to forwarding DNS server\n", header->packet_size);
+    unsigned short tcp_len = htons(header->packet_size);
+    if (send(forwarding_socket_fd, &tcp_len, 2, 0) < 0) {
+        perror("Length send failed");
+        return -4;
+    }
+    */
+    //Now, send the actual message
+    log(3, "Sending message to forwarding DNS server\n");
+    if (send(forwarding_socket_fd, header->raw_packet, header->packet_size, 0) < 0) {
         perror("Send failed");
         return -4;
     }
 
     // Receive the response from Google's DNS server
-    *response_size = recv(google_socket_fd, response_buf, BUFFER_SIZE, 0);
+    *response_size = recv(forwarding_socket_fd, response_buf, BUFFER_SIZE, 0);
     if (*response_size < 0) {
         perror("Receive failed");
         *response_size = 0;
         return -5;
     }
 
-    close(google_socket_fd);
+    close(forwarding_socket_fd);
     return 0;
 }
 
@@ -308,8 +421,7 @@ int dns_forward(dns_header *header, unsigned char *response_buf, ssize_t *respon
 int deserialize_dns_header(dns_header *header, unsigned char *buf, ssize_t buf_size) {
     if (buf_size < DNS_HEADER_SIZE) {
         // Buffer is too small
-        log(1, "Buffer is too small to contain a DNS header [Size is %zd, minimum of %zd]\n", buf_size,
-            DNS_HEADER_SIZE);
+        log(1, "Buffer is too small to contain a DNS header [Size is %zd, minimum of %zd]\n", buf_size, DNS_HEADER_SIZE);
         return -1;
     }
 

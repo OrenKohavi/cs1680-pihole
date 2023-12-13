@@ -4,7 +4,7 @@
 #include <string>
 #include <vector>
 
-#define LOG_LEVEL 3
+#define LOG_LEVEL 2
 #define log(level, format, ...)                                                                                        \
     do {                                                                                                               \
         if (level <= LOG_LEVEL) {                                                                                      \
