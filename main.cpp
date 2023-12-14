@@ -309,6 +309,12 @@ int create_dns_response(dns_header *header, unsigned char *response_buf, ssize_t
 
     //The important part: check if we need to block this request
     vector<string> query_vector = get_query_url_vector(*header);
+
+    if (query_vector.size() == 0) {
+        log(1, "[!] Received a message with no questions, dropping...\n");
+        return -2;
+    }
+
     int result;
     if (is_whitelisted(query_vector)) {
         log(1, "Domain %s is whitelisted, getting response from whitelist\n", get_query_url_string(*header).c_str());
